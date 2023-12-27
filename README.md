@@ -71,9 +71,7 @@ The following routes are available:
     -   Replace `:id` with the actual supplier ID.
     -   Body: JSON payload with updated supplier details.
 
-### Customers
-
-(Repeat the same format for other routes - Locations, Provides, Orderings, Inventories, Stores, Products)
+## (Repeat the same format for other routes -Customers, Locations, Provides, Orderings, Inventories, Stores, Products)
 
 Testing Routes
 --------------
