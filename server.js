@@ -2,6 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const { errorHandler } = require('./utils/error');
 const { testDbConnection } = require('./config/database');
+// const { testDbConnection1 } = require('./config/database');
 const AllRoutes = require('./routes/AllRoutes');
 
 const app = express();
@@ -19,6 +20,7 @@ require('dotenv').config();
 
 // Connect to the database
 testDbConnection();
+// testDbConnection1();
 
 // Routs
 app.use('/', AllRoutes);

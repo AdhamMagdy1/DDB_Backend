@@ -1,4 +1,8 @@
 // Import necessary models and modules
+require('dotenv').config();
+const cairoSERVER = process.env.DB_CAIRO;
+const aswanSERVER = process.env.DB_ASWAN;
+
 const {
   Product,
   Supplier,
@@ -10,12 +14,32 @@ const {
   Store,
 } = require('../models//AllModels');
 const { AppError } = require('../utils/error');
+const { QueryTypes, Sequelize } = require('sequelize');
+const { sequelize } = require('../config/database');
 
 //Product Controller
 const productController = {
   createProduct: async (req, res, next) => {
     try {
-      const product = Product.create(req.body);
+      // const product = Product.create(req.body);
+      const Product_Name = req.body.Product_Name;
+      const Description = req.body.Description;
+      const Unit_Price = req.body.Unit_Price;
+      const Manufacturer = req.body.Manufacturer;
+      const product = await sequelize.query(
+        `SET XACT_ABORT ON;
+      begin transaction;
+      DECLARE @ProductId int;
+      insert into product values('${Product_Name}','${Description}',${Unit_Price}, '${Manufacturer}');
+      SELECT @ProductId = IDENT_CURRENT('product');
+      insert into [${cairoSERVER}].InventoryCairo.dbo.product (Product_ID,Product_Name,"Description",Unit_Price,Manufacturer ) values(@ProductId,'${Product_Name}','${Description}','${Unit_Price}', '${Manufacturer}'); 
+      commit;`,
+        {
+          type: QueryTypes.INSERT,
+          model: Product,
+          mapToModel: true,
+        }
+      );
       res.status(201).json({
         product: product,
         message: 'product created successfully',
@@ -28,7 +52,11 @@ const productController = {
 
   getAllProducts: async (req, res, next) => {
     try {
-      const products = await Product.findAll();
+      const products = await sequelize.query('SELECT * FROM Product', {
+        type: QueryTypes.SELECT,
+        model: Product,
+        mapToModel: true,
+      });
       res.json({ products: products });
     } catch (error) {
       console.error('Error fetching products:', error);
@@ -42,7 +70,11 @@ const productController = {
       if (!product) {
         return next(new AppError('product not found', 404));
       }
-      await product.destroy();
+      await sequelize.query(`SET XACT_ABORT ON;
+      begin transaction;
+      delete from product where Product_ID = ${req.params.id};
+      delete from [${cairoSERVER}].InventoryCairo.dbo.product where Product_ID =${req.params.id} ; 
+      commit;`);
       res.json({ message: 'product deleted successfully' });
     } catch (error) {
       console.error('Error deleting product:', error);
@@ -71,7 +103,22 @@ const productController = {
 const supplierController = {
   createSupplier: async (req, res, next) => {
     try {
-      const supplier = Supplier.create(req.body);
+      const supplier = await sequelize.query(
+        `
+        SET XACT_ABORT ON;
+        begin transaction;
+        DECLARE @Supplier_ID int;
+        insert into Supplier values('${req.body.Supplier_Name}','${req.body.Phone}', '${req.body.Email}');
+        SELECT @Supplier_ID = IDENT_CURRENT('Supplier');
+        insert into [${cairoSERVER}].InventoryCairo.dbo.Supplier (Supplier_ID,Supplier_Name,Phone,Email) values(@Supplier_ID,'${req.body.Supplier_Name}','${req.body.Phone}', '${req.body.Email}');
+        commit;`,
+        {
+          type: QueryTypes.SELECT,
+          model: Supplier,
+          mapToModel: true,
+        }
+      );
+
       res.status(201).json({
         supplier: supplier,
         message: 'Supplier created successfully',
@@ -98,7 +145,11 @@ const supplierController = {
       if (!supplier) {
         return next(new AppError('Supplier not found', 404));
       }
-      await supplier.destroy();
+      await sequelize.query(`SET XACT_ABORT ON;
+      begin transaction;
+      delete from Supplier where Supplier_ID = ${req.params.id};
+      delete from [${cairoSERVER}].InventoryCairo.dbo.Supplier where Supplier_ID = ${req.params.id};
+      commit;`)
       res.json({ message: 'Supplier deleted successfully' });
     } catch (error) {
       console.error('Error deleting supplier:', error);
@@ -356,11 +407,48 @@ const orderingController = {
 const inventoryController = {
   createInventory: async (req, res, next) => {
     try {
-      const inventory = Inventory.create(req.body);
-      res.status(201).json({
-        inventory: inventory,
-        message: 'Inventory created successfully',
-      });
+      // Extract capacity and location name from req.body
+      const { Capacity, Location_Name } = req.body;
+
+      // Check if location exists in the location table
+      const existingLocation = await sequelize.query(
+        `SELECT Location_ID FROM Location WHERE  Location_Name LIKE '${Location_Name}'`,
+        {
+          type: QueryTypes.SELECT,
+          model: Location,
+          mapToModel: true,
+        }
+      );
+      console.log(existingLocation);
+
+      if (existingLocation[0]) {
+        // Location exists, create inventory with location ID
+        const idOFLocation = existingLocation[0].dataValues.Location_ID;
+        const inventory = await sequelize.query(
+          `SET XACT_ABORT ON;
+        begin transaction;
+        DECLARE @Inventory_ID int;
+        insert into Inventory values(${Capacity},${idOFLocation});
+        SELECT @Inventory_ID = IDENT_CURRENT('Inventory');
+        insert into [${cairoSERVER}].InventoryCairo.dbo.Inventory (Inventory_ID) values(@Inventory_ID);
+        commit;`,
+          {
+            type: QueryTypes.INSERT,
+            model: Product,
+            mapToModel: true,
+          }
+        );
+
+        res.status(201).json({
+          inventory: inventory,
+          message: 'Inventory created successfully',
+        });
+      } else {
+        // Location doesn't exist, send error response
+        res.status(400).json({
+          error: 'Location does not exist',
+        });
+      }
     } catch (error) {
       console.error('Error creating inventory:', error);
       next(new AppError('Internal Server Error', 500));
@@ -383,7 +471,18 @@ const inventoryController = {
       if (!inventory) {
         return next(new AppError('Inventory not found', 404));
       }
-      await inventory.destroy();
+      await sequelize.query(
+        `SET XACT_ABORT ON;
+      begin transaction;
+    delete from Inventory where Inventory_ID = ${req.params.id} ;
+      delete from [${cairoSERVER}].InventoryCairo.dbo.Inventory where Inventory_ID = ${req.params.id} ;
+      commit;`,
+        {
+          type: QueryTypes.INSERT,
+          model: Product,
+          mapToModel: true,
+        }
+      );
       res.json({ message: 'Inventory deleted successfully' });
     } catch (error) {
       console.error('Error deleting inventory:', error);
